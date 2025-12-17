@@ -1,4 +1,20 @@
-#!/bin/sh
+#!/bin/bash
+set -euo pipefail
+
+# -----------------------------------------------------------------------------
+# extract.sh
+# 
+# Purpose:
+#   Parses a proprietary WAS-110 firmware header to extract embedded components.
+#   The header structure contains offsets and lengths for:
+#   - bootcore.bin
+#   - kernel.bin
+#   - rootfs.img
+#
+# Usage:
+#   ./extract.sh -i <image_file>
+# -----------------------------------------------------------------------------
+
 _help() {
 	printf -- 'Tool for extracting stock WAS-110 local upgrade images\n\n'
 	printf -- 'Usage: %s [options]\n\n' "$0"
@@ -65,7 +81,11 @@ set -e
 [ -n "$KERNEL" ] || _err "Error: Invalid kernel file specified."
 [ -n "$ROOTFS" ] || _err "Error: Invalid rootfs file specified."
 
-[ "$(head -c 16 "$LOCAL")" = '~@$^*)+ATOS!#%&(' ] || _err "Invalid magic string"
+# Check magic string (first 16 bytes)
+MAGIC=$(head -c 16 "$LOCAL")
+if [ "$MAGIC" != '~@$^*)+ATOS!#%&(' ]; then
+    _err "Invalid magic string in '$LOCAL'. Is this a valid WAS-110 firmware image?"
+fi
 
 LEN_HDR=$((0xD00))
 
@@ -81,13 +101,17 @@ extract_image() {
 	OUT="${2:-$1}"
 
 	DETAIL_OFFSET=$((FILE_OFFSET + (NUM + 1) * 48))
-	FILE=$(head -c $((DETAIL_OFFSET - 16)) "$HEADER" | tail -c 32 | awk -F'\0+' '{print $1}')
-	if ! [ "$FILE" = "$IMAGE" ]; then
-		echo "Image '$IMAGE' expected as image #$NUM" >&2
-		exit 1
+	FILE=$(head -c $((DETAIL_OFFSET - 16)) "$HEADER" | tail -c 32 | tr -d '\0')
+	if [ "$FILE" != "$IMAGE" ]; then
+		_err "Image '$IMAGE' expected as image #$NUM but found '$FILE'"
 	fi
 
-	LEN=$((0 + $(head -c $DETAIL_OFFSET "$HEADER" | tail -c 16 | awk -F'\0+' '{print $1}')))
+	LEN_RAW=$(head -c $DETAIL_OFFSET "$HEADER" | tail -c 16 | tr -d '\0')
+	# Ensure LEN_RAW is a number
+	if ! [[ "$LEN_RAW" =~ ^[0-9]+$ ]]; then
+		_err "Failed to parse length for image #$NUM ($IMAGE)"
+	fi
+	LEN=$((0 + LEN_RAW))
 	POS=$((POS + LEN))
 
 	echo "Extracting image #$NUM ($IMAGE) to '$OUT' ($LEN bytes)"

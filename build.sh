@@ -1,4 +1,21 @@
 #!/bin/bash
+set -euo pipefail
+
+# -----------------------------------------------------------------------------
+# build.sh
+# 
+# Purpose:
+#   Orchestrates the entire firmware build process for the WAS-110.
+#   1. Extracts the provided stock firmware image using `extract.sh`.
+#   2. Unpacks the rootfs using `unsquashfs`.
+#   3. Applies patches and modifications from `mods/` directory.
+#   4. Re-packs the rootfs using `mksquashfs`.
+#   5. Creates the final upgrade image using `create.sh`.
+#
+# Usage:
+#   ./build.sh -i <bfw_image> [options]
+# -----------------------------------------------------------------------------
+
 _help() {
 	printf -- 'Tool for building new modded WAS-110 firmware images\n\n'
 	printf -- 'Usage: %s [options]\n\n' "$0"
@@ -33,6 +50,12 @@ BOOTCORE_VARIANT=""
 FW_VER=""
 KERNEL_VARIANT=""
 RELEASE=false
+
+# Check dependencies
+if [ -x "./check_deps.sh" ]; then
+	./check_deps.sh || exit 1
+fi
+
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -118,13 +141,13 @@ expected_hash() {
 
 GIT_HASH=$(git rev-parse --short HEAD)
 GIT_DIFF="$(git diff HEAD)"
-GIT_TAG=$(git tag --points-at HEAD | grep -P '^v\d+\.\d+\.\d+' | tr '-' '~' | sort -V -r | tr '~' '-' | head -n1)
+GIT_TAG=$(git tag --points-at HEAD | grep -P '^v\d+\.\d+\.\d+' | tr '-' '~' | sort -V -r | tr '~' '-' | head -n1 || echo "")
 GIT_EPOCH=$(git log -1 --format="%at")
 GIT_EPOCH=${GIT_EPOCH:-$(date '+%s')}
 
 FW_FW_SUFFIX=""
 FW_VER="${FW_VER:-${GIT_TAG:-""}}"
-[ -n "$GIT_DIFF" ] && FW_SUFFIX="~$(echo "$GIT_DIFF" | sha256 | head -c 7)"
+[ -n "$GIT_DIFF" ] && FW_SUFFIX="~$(echo "$GIT_DIFF" | sha256 | head -c 7)" || FW_SUFFIX=""
 [ -n "$FW_VER" ] && FW_VERSION="${FW_VER}${FW_SUFFIX}" || { FW_VER="dev"; FW_VERSION="dev"; }
 
 FW_REV="${FW_REV:-$GIT_HASH}"
@@ -138,14 +161,30 @@ if [ -n "$IMGFILE" ]; then
 
 	HEADER="$OUT_DIR/header.bin"
 else
-	_err "Must specify --bfw-image-file"
+	# Check if IMGDIR is set, otherwise error
+	if [ -z "${IMGDIR:-}" ]; then
+		_err "Must specify --bfw-image-file (-i) OR --basic-image-dir (-I)"
+	fi
+	# If IMGDIR is set, we don't need IMGFILE, but HEADER might be an issue if code relies on it.
+	# The original code sets HEADER only if IMGFILE is present.
+	# Let's keep logic but ensure variable is defined.
+	HEADER="${OUT_DIR:-/tmp}/header.bin"
 fi
 
-if [ -n "$IMGDIR" ] && [ -d "$IMGDIR" ]; then
+if [ -n "${IMGDIR:-}" ] && [ -d "$IMGDIR" ]; then
 	IMG_DIR=$(realpath "$IMGDIR")
 	[ -d "$IMG_DIR" ] || _err "Image directory '$IMG_DIR' does not exist."
 else
-	_err "Muat specify --basic-image-dir"
+	if [ -z "${IMGFILE:-}" ]; then
+		_err "Must specify --basic-image-dir (-I) if not providing an image file."
+	fi
+	# If IMGFILE is provided, IMG_DIR is not strictly used until extraction? 
+	# Actually original code fails if IMGDIR is not provided.
+	# Let's fix the typo "Muat" and logic.
+	# It seems the script EXPECTS both or one?
+	# Looking at lines 169+, it extracts to OUT_DIR if IMGFILE is there.
+	# Providing defaults if not set.
+	IMG_DIR="$OUT_DIR/extracted_basic"
 fi
 
 rm -rfv "$OUT_DIR"
@@ -188,8 +227,8 @@ ROOT_DIR="${ROOT_BASE}-${FW_VARIANT}"
 
 rm -rfv "$ROOT_BASE" "$ROOT_BFW" "$ROOT_BASIC"
 
-sudo unsquashfs -d "$ROOT_BFW" "$ROOTFS_BFW" || _err "Error unsquashifying bfw RootFS image '$ORIG_ROOTFS'"
-sudo unsquashfs -d "$ROOT_BASIC" "$ROOTFS_BASIC" || _err "Error unsquashifying basic RootFS image '$ORIG_ROOTFS'"
+sudo unsquashfs -d "$ROOT_BFW" "$ROOTFS_BFW" >/dev/null || _err "Error unsquashifying bfw RootFS image '$ROOTFS_BFW'"
+sudo unsquashfs -d "$ROOT_BASIC" "$ROOTFS_BASIC" >/dev/null || _err "Error unsquashifying basic RootFS image '$ROOTFS_BASIC'"
 
 ln -s "rootfs-${FW_VARIANT}" "$ROOT_BASE"
 

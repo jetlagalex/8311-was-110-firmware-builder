@@ -1,4 +1,22 @@
 #!/bin/bash
+set -euo pipefail
+
+# -----------------------------------------------------------------------------
+# create.sh
+# 
+# Purpose:
+#   Assembles a WAS-110 firmware image from its component parts:
+#   - header.bin: The proprietary headers.
+#   - bootcore.bin: The secondary bootloader.
+#   - kernel.bin: The Linux kernel.
+#   - rootfs.img: The SquashFS root filesystem.
+#
+#   It calculates the correct CRCs and offsets required by the bootloader.
+#
+# Usage:
+#   ./create.sh -i <output_file> ...
+# -----------------------------------------------------------------------------
+
 _help() {
 	printf -- 'Tool for creating new WAS-110 local upgrade images\n\n'
 	printf -- 'Usage: %s [options]\n\n' "$0"
@@ -133,9 +151,9 @@ bfw_add_image() {
 	NUM=$((NUM + 1))
 }
 
-set -e
+set -euo pipefail
 
-[ -n "$OUT" ] || _err "Error: Image file to create must be specified."
+[ -n "$OUT" ] || _err "Error: Image file to create must be specified (use -i or --image)."
 [ -n "$BOOTCORE" ] || _err "Error: bootcore file must be specified."
 [ -f "$BOOTCORE" ] || _err "Error: bootcore file '$BOOTCORE' not found."
 [ -n "$KERNEL" ] || _err "Error: kernel file must be specified."

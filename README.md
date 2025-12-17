@@ -138,9 +138,21 @@ The current root password (change with `passwd`) can be persisted using the `831
 
 
 
-## Scripts
+
+## Usage
+
+### Prerequisites
+Run the dependency checker to ensure you have all required tools:
+```bash
+./check_deps.sh
+```
+You will need `mkimage` (u-boot-tools), `unsquashfs`/`mksquashfs` (squashfs-tools), `perl`, and `7z`.
+
+### Building
+You can use `make` to check your environment, or run the scripts directly.
 
 ### build.sh
+
 Tool for building new modded WAS-110 firmware images
 ```
 Usage: ./build.sh [options]
